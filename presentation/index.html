@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LangGraph: как устроен агент</title>
+  <style>
+    *{box-sizing:border-box}
+    :root{
+      --ice:#EAF2F5;--navy:#142027;--blue:#558CFF;--aqua:#78D7D0;--silver:#AABBC3;
+      --green:#2A8C72;--red:#C85252;--amber:#B57A19;--font:"Segoe UI",Arial,sans-serif;
+      font-family:var(--font);font-synthesis:none;color:var(--navy);background:var(--ice)
+    }
+    html,body{width:100%;height:100%;margin:0;overflow:hidden;background:var(--navy)}
+    h1,h2,h3,p,blockquote,figure,pre{margin:0}
+    h1,h2,h3{font-weight:600;line-height:1.08}
+    h1{font-size:102px;letter-spacing:-5px}
+    h2{font-size:67px;letter-spacing:-3px;margin:24px 0 38px;max-width:1390px}
+    h3{font-size:35px;letter-spacing:-1px;line-height:1.18}
+    p{font-size:28px;line-height:1.42}
+    code,pre{font-family:Consolas,"Cascadia Code",monospace}
+    code{font-size:.93em}
+    a{color:inherit;text-decoration:none}
+    a:focus-visible,button:focus-visible{outline:3px solid var(--blue);outline-offset:6px}
+    button{font:inherit}
+    [hidden]{display:none!important}
+
+    #stage{position:relative;width:100vw;height:100vh;overflow:hidden;background:var(--navy)}
+    #deck{position:absolute;left:50%;top:50%;width:1600px;height:900px;transform:translate(-50%,-50%) scale(var(--scale,1));transform-origin:center}
+    .slide{
+      position:absolute;inset:0;display:none;isolation:isolate;width:1600px;height:900px;padding:72px 96px 100px;overflow:hidden;
+      color:var(--navy);background:var(--ice);--ink:var(--navy);--muted:#465D6A;--accent:#2458AC;--line:rgba(20,32,39,.14);
+      --glass:linear-gradient(140deg,rgba(255,255,255,.63),rgba(234,242,245,.32) 62%,rgba(255,255,255,.48));
+      --edge:rgba(255,255,255,.92);--shadow:0 14px 32px -22px rgba(20,32,39,.3),inset 0 1px 1px rgba(255,255,255,.95),inset 0 -1px 1px rgba(170,187,195,.2)
+    }
+    .slide.active{display:block}
+    .slide::before{content:"";position:absolute;z-index:-2;inset:-80px;pointer-events:none;background:radial-gradient(ellipse 470px 440px at 96% 8%,rgba(85,140,255,.46),transparent 80%),radial-gradient(ellipse 590px 380px at 60% 108%,rgba(120,215,208,.55),transparent 84%),radial-gradient(ellipse 340px 230px at 2% 8%,rgba(170,187,195,.2),transparent 85%)}
+    .slide::after{content:"";position:absolute;z-index:-1;inset:22px;border:1.5px solid rgba(255,255,255,.9);border-radius:44px;background:linear-gradient(125deg,rgba(255,255,255,.44),rgba(234,242,245,.12) 55%,rgba(255,255,255,.26));box-shadow:inset 0 2px 2px rgba(255,255,255,.85),inset 0 -1px 2px rgba(170,187,195,.38),0 20px 60px -36px rgba(20,32,39,.28);backdrop-filter:blur(20px);pointer-events:none}
+    .slide.dark{background:var(--navy);color:var(--ice);--ink:var(--ice);--muted:#BECDD4;--accent:var(--aqua);--line:rgba(170,187,195,.23);--glass:linear-gradient(135deg,rgba(234,242,245,.13),rgba(20,32,39,.36) 65%,rgba(170,187,195,.08));--edge:rgba(234,242,245,.24);--shadow:0 18px 34px -25px rgba(0,0,0,.6),inset 0 1px 1px rgba(234,242,245,.23)}
+    .slide.dark::before{background:radial-gradient(ellipse 450px 490px at 98% 5%,rgba(85,140,255,.46),transparent 85%),radial-gradient(ellipse 580px 360px at 69% 106%,rgba(120,215,208,.3),transparent 83%)}
+    .slide.dark::after{border-color:rgba(234,242,245,.24);background:linear-gradient(125deg,rgba(234,242,245,.06),rgba(20,32,39,.15) 56%,rgba(170,187,195,.07))}
+    .slide.lime::before{background:radial-gradient(ellipse 770px 590px at 100% 10%,rgba(120,215,208,.66),transparent 80%),radial-gradient(ellipse 620px 390px at 8% 105%,rgba(85,140,255,.23),transparent 84%)}
+
+    .muted{color:var(--muted)}
+    .accent{color:var(--accent)}
+    .eyebrow{font-size:20px;font-weight:600;letter-spacing:2.4px;line-height:1.4;color:var(--muted)}
+    .lead{font-size:36px;line-height:1.38;letter-spacing:-.5px;max-width:1260px}
+    .small{font-size:21px;line-height:1.4}
+    .glass{background:var(--glass);border:1px solid var(--edge);border-radius:28px;box-shadow:var(--shadow);backdrop-filter:blur(18px) saturate(1.12)}
+    .bottom-line{position:absolute;bottom:80px;left:96px;right:96px;padding-top:20px;border-top:1px solid var(--line);font-size:25px;line-height:1.35}
+    .slide-footer{position:absolute;bottom:41px;left:96px;right:96px;display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:15px;letter-spacing:1.3px}
+    .source-link{text-decoration:underline;text-underline-offset:3px;letter-spacing:0;font-size:16px}
+    .page-num{font-variant-numeric:tabular-nums;font-size:17px}
+    .tag{display:inline-flex;align-items:center;min-height:38px;padding:6px 14px;border:1px solid var(--line);border-radius:999px;font-size:20px;line-height:1.2;color:var(--muted)}
+    .code{padding:24px 28px;border:1px solid rgba(234,242,245,.24);border-radius:26px;background:#142027;color:#EAF2F5;box-shadow:0 18px 40px -26px rgba(20,32,39,.5);font-size:23px;line-height:1.34;white-space:pre-wrap;tab-size:2}
+    .kw{color:#9CBFFF}.str{color:#A6E7DD}.call{color:#EACF95}.comment{color:#91A6AF}
+    [data-reveal]{visibility:hidden;opacity:0;transform:translateY(12px);transition:opacity .25s ease,transform .25s ease}
+    [data-reveal].shown{visibility:visible;opacity:1;transform:none}
+
+    /* Cover */
+    .cover-copy{position:absolute;left:96px;top:50%;z-index:2;max-width:850px;transform:translateY(-50%)}
+    .cover-copy h1{font-size:104px;line-height:1.02;letter-spacing:-5.7px}
+    .cover-copy em{font-style:normal;color:#3268C8}
+    .cover-sub{font-size:29px;line-height:1.5;margin-top:40px;color:var(--muted)}
+    .cover-help{position:absolute;left:96px;bottom:62px;font-size:17px;letter-spacing:.7px;color:var(--muted)}
+    .glass-sculpture{position:absolute;right:65px;top:155px;width:640px;height:600px;perspective:1200px;pointer-events:none}
+    .glass-plane{position:absolute;left:86px;width:440px;height:335px;border:2px solid rgba(255,255,255,.95);border-radius:65px;transform:rotateX(51deg) rotateZ(-30deg);background:linear-gradient(135deg,rgba(255,255,255,.78),rgba(234,242,245,.13) 34%,rgba(120,215,208,.28) 65%,rgba(255,255,255,.65));box-shadow:inset 4px 5px 5px rgba(255,255,255,.92),inset -7px -8px 8px rgba(85,140,255,.2),0 8px 0 -2px rgba(170,187,195,.47),0 18px 30px -16px rgba(20,32,39,.23);backdrop-filter:blur(5px)}
+    .plane-back{top:12px;z-index:4}.plane-middle{top:155px;z-index:3;background:linear-gradient(135deg,rgba(234,242,245,.54),rgba(85,140,255,.22) 40%,rgba(120,215,208,.65))}.plane-front{top:297px;z-index:1;background:linear-gradient(135deg,rgba(255,255,255,.76),rgba(85,140,255,.2) 60%,rgba(234,242,245,.74))}
+    .glass-core{position:absolute;z-index:2;left:220px;top:268px;width:177px;height:155px;border-radius:50%;background:radial-gradient(circle at 30% 22%,#EAF2F5 1%,#78D7D0 25%,#558CFF 74%,rgba(85,140,255,.5));box-shadow:0 0 75px rgba(85,140,255,.45),inset -12px -15px 22px rgba(20,32,39,.2)}
+    .sculpture-shadow{position:absolute;left:90px;bottom:16px;width:440px;height:115px;border-radius:50%;background:rgba(85,140,255,.2);filter:blur(28px);transform:rotate(-18deg)}
+
+    /* Reusable compositions */
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:34px}.two-col>div{min-width:0}
+    .three-col{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+    .card{padding:30px 32px;min-width:0}
+    .card p{margin-top:16px;color:var(--muted)}
+    .number{display:block;font-size:23px;color:var(--accent);font-variant-numeric:tabular-nums;margin-bottom:18px}
+    .big-word{font-size:49px;letter-spacing:-1.7px}
+
+    /* 02 */
+    .twins{display:grid;grid-template-columns:1fr 1fr;gap:38px;margin-top:16px}
+    .workflow-card{padding:34px 38px 36px;min-height:385px}
+    .workflow-card:last-child{background:linear-gradient(140deg,rgba(120,215,208,.25),rgba(255,255,255,.55))}
+    .workflow-card h3{font-size:45px}.workflow-card code{font-size:25px;color:var(--accent)}
+    .mini-flow{display:flex;align-items:center;gap:13px;margin:42px 0 34px}
+    .mini-flow span{display:flex;align-items:center;justify-content:center;min-width:86px;height:66px;padding:0 16px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.34);font-size:23px;font-weight:600}
+    .mini-flow i{font-style:normal;font-size:25px;color:var(--accent)}
+    .workflow-card p{font-size:27px;color:var(--muted)}
+
+    /* 03 */
+    .concept-map{display:grid;grid-template-columns:repeat(5,1fr);gap:18px;margin-top:68px}
+    .concept{min-height:310px;padding:30px 25px;text-align:left}
+    .concept b{display:block;font-size:69px;line-height:1;color:var(--accent);font-weight:400;letter-spacing:-4px}
+    .concept h3{margin-top:28px;font-size:38px}
+    .concept p{font-size:23px;line-height:1.38;margin-top:15px;color:var(--muted)}
+
+    /* 04 */
+    .run-stage{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:42px;height:382px;margin-top:45px;padding-top:74px}
+    .run-rail{position:absolute;left:110px;right:110px;top:176px;height:4px;border-radius:4px;background:linear-gradient(90deg,var(--blue),var(--aqua))}
+    .run-stop{position:relative;z-index:1;min-width:0;height:208px;padding:25px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:var(--glass);border:1px solid var(--edge);border-radius:28px;box-shadow:var(--shadow);backdrop-filter:blur(18px)}
+    .run-stop b{font:600 27px/1.2 Consolas,"Cascadia Code",monospace;color:var(--accent)}
+    .run-stop small{display:block;font-size:19px;font-weight:400;color:var(--muted);margin-top:8px}
+    .run-stop p{font-size:22px;line-height:1.3;margin-top:25px}
+    .run-stop.conditional{border-style:dashed;background:linear-gradient(140deg,rgba(120,215,208,.2),rgba(255,255,255,.5))}
+
+    /* 05 */
+    .scope-stack{display:grid;grid-template-columns:330px 1fr;gap:26px;margin-top:28px}
+    .scope-term{display:flex;align-items:center;justify-content:center;min-height:142px;padding:22px;border-radius:28px;background:var(--glass);border:1px solid var(--edge);box-shadow:var(--shadow);font-size:38px;font-weight:600;color:var(--accent)}
+    .scope-text{min-height:142px;padding:26px 32px;border-top:1px solid var(--line)}
+    .scope-text h3{font-size:31px}.scope-text p{font-size:25px;margin-top:12px;color:var(--muted)}
+
+    /* 06-07 */
+    .state-shell{display:grid;grid-template-columns:360px 1fr;gap:38px;margin-top:32px;align-items:stretch}
+    .state-name{display:flex;flex-direction:column;justify-content:center;padding:36px}
+    .state-name .big-word{font-size:44px;color:var(--accent)}
+    .state-name p{font-size:25px;margin-top:22px;color:var(--muted)}
+    .state-json{font-size:26px;line-height:1.43;padding:32px 38px}
+    .message-stream{display:grid;grid-template-columns:1fr 150px 1fr;gap:22px;align-items:center;margin-top:46px}
+    .message-list{padding:28px 32px;min-height:392px}
+    .message-list h3{margin-bottom:26px}
+    .bubble{padding:16px 20px;margin-top:14px;border:1px solid var(--line);border-radius:18px;font-size:23px;line-height:1.35}
+    .bubble.human{background:rgba(85,140,255,.12)}.bubble.ai{background:rgba(120,215,208,.18)}.bubble.tool{background:rgba(170,187,195,.16)}
+    .reducer{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;color:var(--accent);font-size:22px}.reducer b{font-size:50px;font-weight:400}
+
+    /* 08 */
+    .node-contract{display:grid;grid-template-columns:420px 180px 420px;justify-content:center;gap:30px;align-items:center;margin-top:90px}
+    .contract-box{min-height:270px;padding:38px;display:flex;flex-direction:column;justify-content:center}
+    .contract-box h3{font-size:43px}.contract-box p{font-size:25px;margin-top:22px;color:var(--muted)}
+    .contract-arrow{text-align:center;font-size:80px;color:var(--accent)}
+    .partial{position:absolute;left:563px;bottom:178px;width:474px;padding:18px 25px;text-align:center;border-radius:18px;background:rgba(120,215,208,.24);font:23px/1.35 Consolas,monospace;color:var(--ink)}
+
+    /* 09-10 */
+    .route-stage{position:relative;height:500px;margin-top:12px}
+    .node-box{min-height:178px;padding:30px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+    .node-box h3{font-size:42px}.node-box p{font-size:24px;margin-top:14px;color:var(--muted)}
+    .route-llm{position:absolute;left:100px;top:95px;width:390px}.route-end{position:absolute;right:100px;top:95px;width:390px}.route-tools{position:absolute;left:574px;top:340px;width:260px;min-height:160px}
+    .diamond-wrap{position:absolute;left:601px;top:80px;width:205px;height:205px}
+    .route-diamond{width:205px;height:205px;transform:rotate(45deg);border:1px solid var(--edge);border-radius:34px;background:var(--glass);box-shadow:var(--shadow)}
+    .route-diamond span{display:flex;width:100%;height:100%;align-items:center;justify-content:center;transform:rotate(-45deg);font:600 25px/1.2 Consolas,monospace;text-align:center;color:var(--accent)}
+    .route-stage .line{background:var(--accent)}.route-stage .line::after{border-left-color:var(--accent)}
+    .route-a{left:490px;top:183px;width:124px}.route-b{left:794px;top:183px;width:124px}.route-c{left:704px;top:272px;width:70px;transform:rotate(90deg)}
+    .route-label{position:absolute;font-size:21px;color:var(--muted)}.route-no{left:850px;top:142px}.route-yes{left:735px;top:293px}
+    .full-loop{position:relative;height:525px;margin-top:-8px}
+    .loop-node{position:absolute;width:260px;min-height:150px;padding:30px 22px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+    .loop-node h3{font-size:38px}.loop-node p{font-size:21px;margin-top:12px;color:var(--muted)}
+    .loop-start{left:20px;top:180px}.loop-llm{left:350px;top:180px;background:linear-gradient(140deg,rgba(85,140,255,.23),rgba(255,255,255,.55))}.loop-decision{position:absolute;left:694px;top:153px;width:205px;height:205px}
+    .loop-decision-shape{width:205px;height:205px;transform:rotate(45deg);border:1px solid var(--edge);border-radius:34px;background:var(--glass);box-shadow:var(--shadow)}
+    .loop-decision-shape span{display:flex;width:100%;height:100%;align-items:center;justify-content:center;transform:rotate(-45deg);font:600 24px/1.25 Consolas,"Cascadia Code",monospace;text-align:center;color:var(--accent)}
+    .loop-tools{left:662px;top:390px;min-height:130px;background:linear-gradient(140deg,rgba(120,215,208,.26),rgba(255,255,255,.53))}.loop-end{right:38px;top:180px}
+    .flow-arrows{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}.flow-arrows path{fill:none;stroke:var(--accent);stroke-width:4;stroke-linecap:round;stroke-linejoin:round}.flow-arrows marker path{fill:var(--accent);stroke:none}
+    .line{position:absolute;height:4px;border-radius:4px;background:var(--accent);transform-origin:left center}.line::after{content:"";position:absolute;right:-2px;top:-7px;border-left:15px solid var(--accent);border-top:9px solid transparent;border-bottom:9px solid transparent}
+    .loop-label{position:absolute;font-size:20px;color:var(--muted)}.lab1{left:954px;top:208px}.lab2{left:838px;top:350px}.lab3{left:354px;top:390px}
+    .step-chip{position:absolute;display:flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;background:var(--blue);color:white;font-size:21px;font-weight:600;box-shadow:0 8px 18px rgba(85,140,255,.28)}
+    .c1{left:304px;top:235px}.c2{left:1024px;top:235px}.c3{left:776px;top:350px}.c4{left:548px;top:434px}
+
+    /* 11 */
+    .compare{display:grid;grid-template-columns:1fr 220px 1fr;gap:28px;align-items:stretch;margin-top:35px}
+    .agent-card{padding:34px 36px}.agent-card h3{font-size:43px}.agent-card .tool-pill{display:inline-block;margin-top:24px;padding:11px 17px;border-radius:999px;background:rgba(85,140,255,.14);font:23px/1.2 Consolas,monospace;color:var(--accent)}.agent-card p{font-size:25px;margin-top:28px;color:var(--muted)}
+    .same{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}.same::before,.same::after{content:"";position:absolute;top:50%;width:34px;height:2px;background:var(--line)}.same::before{left:-28px}.same::after{right:-28px}.same b{font-size:25px;line-height:1.2;color:var(--accent)}.same p{font-size:20px;color:var(--muted);margin-top:18px}
+
+    /* 12-16 */
+    .memory-equation{display:grid;grid-template-columns:1fr 120px 1fr;gap:26px;align-items:center;margin-top:78px}.memory-part{min-height:310px;padding:38px}.memory-part h3{font-size:49px}.memory-part p{font-size:27px;margin-top:28px;color:var(--muted)}.memory-op{text-align:center;font-size:72px;color:var(--accent)}
+    .thread-demo{display:grid;grid-template-columns:1fr 1fr;gap:34px;margin-top:28px}.thread{padding:30px 34px;min-height:445px}.thread h3{font-size:40px}.thread-id{font:22px/1.3 Consolas,monospace;color:var(--accent);margin-top:12px}.thread .bubble{font-size:22px}.thread .answer{border-color:rgba(42,140,114,.45)}
+    .memory-code{display:grid;grid-template-columns:1.05fr .95fr;gap:34px;margin-top:28px}.memory-code pre{font-size:21px;min-height:458px}.memory-code .explain{padding:34px 38px}.memory-code .explain h3{font-size:40px}.memory-code .explain p{font-size:25px;margin-top:22px;color:var(--muted)}
+    .store-grid{display:grid;grid-template-columns:1fr 1fr;gap:38px;margin-top:25px}.store-card{padding:34px 38px;min-height:420px}.store-card h3{font-size:44px}.store-card p{font-size:25px;margin-top:20px;color:var(--muted)}.kv{margin-top:28px;padding:22px 24px;border:1px solid var(--line);border-radius:20px;font:22px/1.45 Consolas,monospace}.scope-badge{display:inline-block;margin-top:25px;padding:9px 14px;border-radius:999px;background:rgba(120,215,208,.2);font-size:21px;color:var(--accent)}
+    .memory-rules{display:grid;grid-template-columns:repeat(2,1fr);gap:24px 42px;margin-top:28px}.memory-rule{min-height:180px;padding:26px 30px;border-top:1px solid var(--line)}.memory-rule h3{font-size:35px}.memory-rule p{font-size:24px;margin-top:13px;color:var(--muted)}
+
+    /* 17 */
+    .quiz{display:grid;grid-template-columns:repeat(2,1fr);gap:22px 34px;margin-top:28px}.quiz button{min-height:160px;padding:26px 30px;text-align:left;color:inherit;background:var(--glass);border:1px solid var(--edge);border-radius:26px;box-shadow:var(--shadow);cursor:pointer}.quiz button[aria-pressed="true"]{border-color:var(--blue);background:linear-gradient(140deg,rgba(85,140,255,.22),rgba(255,255,255,.56))}.quiz b{font-size:22px;color:var(--accent)}.quiz p{font-size:25px;margin-top:13px}.quiz-answer{margin-top:22px;font-size:24px;color:var(--accent)}
+
+    /* 18 */
+    .final-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:18px;margin-top:62px}.final-card{min-height:300px;padding:28px 24px}.final-card b{display:block;font-size:63px;line-height:1;color:var(--accent);font-weight:400}.final-card h3{font-size:34px;margin-top:25px}.final-card p{font-size:22px;margin-top:14px;color:var(--muted)}
+    .final-line{font-size:37px;line-height:1.35;margin-top:44px;text-align:center}
+
+    #announcer{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+    #notes{position:relative;border:1px solid #AABBC3;border-radius:24px;background:#EAF2F5;color:#142027;width:min(900px,90vw);max-height:85vh;padding:35px 40px;line-height:1.55}
+    #notes::backdrop{background:rgba(20,32,39,.65)}
+    #notes h3{padding-right:25px;font-size:28px}#notes p,#notes-body{font-size:20px;margin-top:16px}#notes-body a{display:block;color:#2458AC;text-decoration:underline;margin-top:10px}
+    #close-notes{position:absolute;right:18px;top:10px;background:none;border:0;font-size:32px;cursor:pointer}
+    @media print{html,body{overflow:visible;background:white}#stage{width:auto;height:auto;overflow:visible}.slide{position:relative;display:block!important;break-after:page}[data-reveal]{visibility:visible!important;opacity:1!important;transform:none!important}#notes{display:none!important}}
+    @page{size:1600px 900px;margin:0}
+  </style>
+</head>
+<body>
+<main id="stage" aria-label="Презентация">
+  <div id="deck">
+    <section id="slide-1" class="slide active" data-title="LangGraph: как устроен агент" aria-label="Слайд 1: LangGraph: как устроен агент">
+      <div class="glass-sculpture" aria-hidden="true"><span class="sculpture-shadow"></span><span class="glass-plane plane-back"></span><span class="glass-core"></span><span class="glass-plane plane-middle"></span><span class="glass-plane plane-front"></span></div>
+      <div class="cover-copy"><p class="eyebrow">НЕДЕЛЯ 03 · ТЕОРИЯ</p><h1>LangGraph:<br>как устроен<br><em>агент</em></h1><p class="cover-sub">Run, state, nodes, tools<br>и память без магии</p></div>
+      <p class="cover-help">Space: раскрыть или продолжить · стрелки: слайды · N: заметки · F: полный экран</p>
+    </section>
+
+    <section id="slide-2" class="slide" data-title="Два агента, один каркас" aria-label="Слайд 2: Два агента, один каркас">
+      <p class="eyebrow">НАШ ПРОЕКТ</p><h2>Два агента, один каркас</h2>
+      <div class="twins">
+        <article class="workflow-card glass"><h3><code>weather_agent</code></h3><div class="mini-flow"><span>START</span><i>›</i><span>llm</span><i>›</i><span>tools</span><i>›</i><span>llm</span></div><p>Единственный внешний навык: <code>get_current_weather</code></p></article>
+        <article class="workflow-card glass"><h3><code>web_search_agent</code></h3><div class="mini-flow"><span>START</span><i>›</i><span>llm</span><i>›</i><span>tools</span><i>›</i><span>llm</span></div><p>Единственный внешний навык: <code>web_search</code></p></article>
+      </div>
+      <p class="bottom-line">Сегодня читаем эту схему как исполняемую программу</p>
+      <footer class="slide-footer"><a class="source-link" href="../langgraph.json">Источник: langgraph.json</a><span class="page-num">02 / 18</span></footer>
+    </section>
+
+    <section id="slide-3" class="slide dark" data-title="Пять слов для чтения графа" aria-label="Слайд 3: Пять слов для чтения графа">
+      <p class="eyebrow">КАРТА ЗАНЯТИЯ</p><h2>Пять слов для чтения графа</h2>
+      <div class="concept-map">
+        <article class="concept glass"><b>01</b><h3>Run</h3><p>Один запуск графа</p></article>
+        <article class="concept glass"><b>02</b><h3>State</h3><p>Текущий снимок данных</p></article>
+        <article class="concept glass"><b>03</b><h3>Nodes</h3><p>Функции, которые делают работу</p></article>
+        <article class="concept glass"><b>04</b><h3>Tools</h3><p>Действия во внешнем мире</p></article>
+        <article class="concept glass"><b>05</b><h3>Memory</h3><p>Состояние, сохранённое между запусками</p></article>
+      </div>
+      <p class="bottom-line">Граф задаёт движение, состояние переносит данные</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/langgraph/graph-api">LangGraph Graph API</a><span class="page-num">03 / 18</span></footer>
+    </section>
+
+    <section id="slide-4" class="slide" data-title="Run: один проход по графу" aria-label="Слайд 4: Run: один проход по графу">
+      <p class="eyebrow">RUN</p><h2>Один вход, один путь, один результат</h2>
+      <p class="lead">Run начинается с входных данных и заканчивается в <code>END</code>, на остановке, прерывании или ошибке.</p>
+      <div class="run-stage" aria-label="Пример запуска с инструментом">
+        <div class="run-rail"></div>
+        <div class="run-stop"><b>input</b><small>HumanMessage</small><p>Запрос пользователя</p></div>
+        <div class="run-stop"><b>llm</b><small>node</small><p>Решение модели</p></div>
+        <div class="run-stop"><b>route</b><small>condition</small><p>Выбор следующего шага</p></div>
+        <div class="run-stop conditional"><b>tools</b><small>node, если нужен tool</small><p>Внешнее действие</p></div>
+        <div class="run-stop"><b>output</b><small>AIMessage</small><p>Финальный ответ</p></div>
+      </div>
+      <p class="bottom-line">Один run может посетить одну и ту же node несколько раз</p>
+      <footer class="slide-footer"><span></span><span class="page-num">04 / 18</span></footer>
+    </section>
+
+    <section id="slide-5" class="slide" data-title="Run, thread и assistant" aria-label="Слайд 5: Run, thread и assistant">
+      <p class="eyebrow">ОБЪЕКТЫ STUDIO</p><h2>Run, thread и assistant не одно и то же</h2>
+      <div class="scope-stack">
+        <div class="scope-term">Assistant</div><div class="scope-text"><h3>Какой граф и с какой конфигурацией запускать</h3><p>В нашем проекте выбор начинается с <code>weather_agent</code> или <code>web_search_agent</code>.</p></div>
+        <div class="scope-term">Thread</div><div class="scope-text"><h3>Контейнер одной продолжающейся истории</h3><p>Связывает несколько запусков и их checkpoints.</p></div>
+        <div class="scope-term">Run</div><div class="scope-text"><h3>Одна конкретная попытка выполнить граф</h3><p>Новый запрос в том же thread создаёт новый run.</p></div>
+      </div>
+      <p class="bottom-line">Assistant выбирает поведение, thread хранит продолжение, run выполняет шаг</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/langsmith/configuration-cloud">LangSmith: assistants and runs</a><span class="page-num">05 / 18</span></footer>
+    </section>
+
+    <section id="slide-6" class="slide" data-title="State: общий снимок данных" aria-label="Слайд 6: State: общий снимок данных">
+      <p class="eyebrow">STATE</p><h2>State показывает, что граф знает сейчас</h2>
+      <div class="state-shell">
+        <article class="state-name glass"><h3 class="big-word">MessagesState</h3><p>Готовая схема с одним каналом <code>messages</code> и reducer <code>add_messages</code>.</p></article>
+        <pre class="code state-json"><code>{
+  <span class="kw">"messages"</span>: [
+    HumanMessage(<span class="str">"Какая погода в Казани?"</span>),
+    AIMessage(tool_calls=[...]),
+    ToolMessage(<span class="str">"+12 °C, облачно"</span>),
+    AIMessage(<span class="str">"Сейчас в Казани..."</span>)
+  ]
+}</code></pre>
+      </div>
+      <p class="bottom-line">Node читает state и возвращает только обновление нужных полей</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/langgraph/graph-api#messagesstate">LangGraph: MessagesState</a><span class="page-num">06 / 18</span></footer>
+    </section>
+
+    <section id="slide-7" class="slide" data-title="Reducer собирает обновления" aria-label="Слайд 7: Reducer собирает обновления">
+      <p class="eyebrow">STATE UPDATE</p><h2>Reducer решает, как применить обновление</h2>
+      <div class="message-stream">
+        <article class="message-list glass"><h3>State до node</h3><div class="bubble human">HumanMessage: «Найди новости о LangGraph»</div><div class="bubble ai">AIMessage: tool call <code>web_search</code></div></article>
+        <div class="reducer"><b>+</b><span><code>add_messages</code></span></div>
+        <article class="message-list glass"><h3>State после node</h3><div class="bubble human">HumanMessage: «Найди новости о LangGraph»</div><div class="bubble ai">AIMessage: tool call <code>web_search</code></div><div class="bubble tool" data-reveal>ToolMessage: найденные результаты</div></article>
+      </div>
+      <p class="bottom-line">Без reducer новое значение обычно заменяет старое</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/langgraph/graph-api#reducers">LangGraph: reducers</a><span class="page-num">07 / 18</span></footer>
+    </section>
+
+    <section id="slide-8" class="slide" data-title="Node: функция над состоянием" aria-label="Слайд 8: Node: функция над состоянием">
+      <p class="eyebrow">NODES</p><h2>Node получает state и возвращает partial update</h2>
+      <div class="node-contract">
+        <article class="contract-box glass"><h3>Вход</h3><p>Текущий <code>MessagesState</code></p></article>
+        <div class="contract-arrow">›</div>
+        <article class="contract-box glass"><h3><code>llm_node</code></h3><p>Вызывает модель с system prompt и историей сообщений</p></article>
+      </div>
+      <div class="partial" data-reveal>{ "messages": [response] }</div>
+      <p class="bottom-line">Node не обязана возвращать весь state целиком</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/langgraph/graph-api#nodes">LangGraph: nodes</a><span class="page-num">08 / 18</span></footer>
+    </section>
+
+    <section id="slide-9" class="slide" data-title="Edges задают следующий шаг" aria-label="Слайд 9: Edges задают следующий шаг">
+      <p class="eyebrow">EDGES</p><h2>Edge отвечает на вопрос «что дальше?»</h2>
+      <div class="route-stage">
+        <article class="node-box glass route-llm"><h3><code>llm</code></h3><p>Вернула AIMessage</p></article>
+        <div class="diamond-wrap"><div class="route-diamond"><span>есть<br>tool_calls?</span></div></div>
+        <article class="node-box glass route-end"><h3><code>END</code></h3><p>Готовый ответ</p></article>
+        <article class="node-box glass route-tools"><h3><code>tools</code></h3><p>Выполнить вызов</p></article>
+        <span class="line route-a"></span><span class="line route-b"></span><span class="line route-c"></span>
+        <span class="route-label route-no">нет</span><span class="route-label route-yes">да</span>
+      </div>
+      <p class="bottom-line"><code>tools_condition</code> проверяет последнее сообщение и выбирает tools или END</p>
+      <footer class="slide-footer"><a class="source-link" href="https://reference.langchain.com/python/langgraph.prebuilt/tool_node/tools_condition">LangGraph reference: tools_condition</a><span class="page-num">09 / 18</span></footer>
+    </section>
+
+    <section id="slide-10" class="slide" data-title="Полный цикл агента" aria-label="Слайд 10: Полный цикл агента">
+      <p class="eyebrow">CONTROL FLOW</p><h2>Цикл продолжается, пока модели нужен tool</h2>
+      <div class="full-loop">
+        <article class="loop-node loop-start glass"><h3>START</h3><p>Входное сообщение</p></article>
+        <article class="loop-node loop-llm glass"><h3>llm</h3><p>Ответ или tool call</p></article>
+        <div class="loop-decision"><div class="loop-decision-shape"><span>есть<br>tool_calls?</span></div></div>
+        <article class="loop-node loop-tools glass"><h3>tools</h3><p>Выполнение функции</p></article>
+        <article class="loop-node loop-end glass"><h3>END</h3><p>Финальный ответ</p></article>
+        <svg class="flow-arrows" viewBox="0 0 1408 525" aria-hidden="true">
+          <defs><marker id="flow-arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 Z"></path></marker></defs>
+          <path d="M280 255 H350" marker-end="url(#flow-arrow)"></path>
+          <path d="M610 255 H694" marker-end="url(#flow-arrow)"></path>
+          <path d="M899 255 H1110" marker-end="url(#flow-arrow)"></path>
+          <path d="M797 358 V390" marker-end="url(#flow-arrow)"></path>
+          <path d="M662 455 H480 V330" marker-end="url(#flow-arrow)"></path>
+        </svg>
+        <span class="loop-label lab1">без tool call</span><span class="loop-label lab2">есть tool call</span><span class="loop-label lab3">ToolMessage возвращается в state</span>
+        <span class="step-chip c1" data-reveal>1</span><span class="step-chip c2" data-reveal>2</span><span class="step-chip c3" data-reveal>3</span><span class="step-chip c4" data-reveal>4</span>
+      </div>
+      <p class="bottom-line">В нашем коде фиксирован только каркас, решение о tool call принимает модель</p>
+      <footer class="slide-footer"><a class="source-link" href="../src/02_weather_graph.py">Источник: src/02_weather_graph.py</a><span class="page-num">10 / 18</span></footer>
+    </section>
+
+    <section id="slide-11" class="slide" data-title="Почему workflows разделены" aria-label="Слайд 11: Почему workflows разделены">
+      <p class="eyebrow">АРХИТЕКТУРА ПРОЕКТА</p><h2>Один каркас, разные tools</h2>
+      <div class="compare">
+        <article class="agent-card glass"><h3>Погода</h3><span class="tool-pill">get_current_weather</span><p>Узкий системный prompt и один разрешённый источник текущей погоды.</p></article>
+        <div class="same"><b>Общий каркас</b><p>StateGraph<br>MessagesState<br>nodes: llm, tools</p></div>
+        <article class="agent-card glass"><h3>Веб-поиск</h3><span class="tool-pill">web_search</span><p>Отдельный prompt для свежих сведений, ссылок и недоверенных результатов поиска.</p></article>
+      </div>
+      <div class="glass card" style="margin-top:28px"><p style="margin:0;color:var(--ink);font-size:29px"><strong>Плюс разделения:</strong> проще тестировать, наблюдать и ограничивать доступ каждого workflow.</p></div>
+      <p class="bottom-line">Набор tools является частью полномочий агента</p>
+      <footer class="slide-footer"><a class="source-link" href="../src/03_web_search_graph.py">Источник: src/03_web_search_graph.py</a><span class="page-num">11 / 18</span></footer>
+    </section>
+
+    <section id="slide-12" class="slide lime" data-title="Память без магии" aria-label="Слайд 12: Память без магии">
+      <p class="eyebrow">MEMORY</p><h2>Память появляется, когда state сохраняют и возвращают</h2>
+      <div class="memory-equation">
+        <article class="memory-part glass"><h3>State</h3><p>Данные текущего исполнения: сообщения, документы, промежуточные результаты.</p></article>
+        <div class="memory-op">+</div>
+        <article class="memory-part glass"><h3>Persistence</h3><p>Механизм сохраняет нужные данные и загружает их в следующий run.</p></article>
+      </div>
+      <p class="bottom-line">Модель помнит только то, что приложение снова передало в её контекст</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/langgraph/persistence">LangGraph: persistence</a><span class="page-num">12 / 18</span></footer>
+    </section>
+
+    <section id="slide-13" class="slide" data-title="Short-term memory живёт в thread" aria-label="Слайд 13: Short-term memory живёт в thread">
+      <p class="eyebrow">SHORT-TERM MEMORY</p><h2>Один thread продолжает разговор</h2>
+      <div class="thread-demo">
+        <article class="thread glass"><h3>Thread A</h3><p class="thread-id">thread_id = "kfu-17"</p><div class="bubble human">Меня зовут Марат</div><div class="bubble ai">Приятно познакомиться</div><div class="bubble human">Как меня зовут?</div><div class="bubble ai answer" data-reveal>Марат</div></article>
+        <article class="thread glass"><h3>Thread B</h3><p class="thread-id">thread_id = "kfu-18"</p><div class="bubble human">Как меня зовут?</div><div class="bubble ai answer" data-reveal>В этой истории имя не указано</div></article>
+      </div>
+      <p class="bottom-line">Одинаковый thread_id продолжает состояние, новый thread_id начинает отдельную историю</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/langgraph/add-memory">LangGraph: add memory</a><span class="page-num">13 / 18</span></footer>
+    </section>
+
+    <section id="slide-14" class="slide" data-title="Checkpointer сохраняет checkpoints" aria-label="Слайд 14: Checkpointer сохраняет checkpoints">
+      <p class="eyebrow">CHECKPOINTER</p><h2>Локально память подключается при compile</h2>
+      <div class="memory-code">
+        <pre class="code"><code><span class="kw">from</span> langgraph.checkpoint.memory <span class="kw">import</span> InMemorySaver
+
+checkpointer = <span class="call">InMemorySaver</span>()
+graph = workflow.<span class="call">compile</span>(
+    checkpointer=checkpointer
+)
+
+config = {
+    <span class="str">"configurable"</span>: {
+        <span class="str">"thread_id"</span>: <span class="str">"kfu-17"</span>
+    }
+}
+
+graph.<span class="call">invoke</span>(input, config)</code></pre>
+        <article class="explain glass"><h3>Checkpoint</h3><p>Снимок state на шаге выполнения. Он поддерживает продолжение разговора, восстановление после сбоя и time travel.</p><p data-reveal><strong>В Agent Server:</strong> инфраструктура persistence подключается автоматически.</p></article>
+      </div>
+      <p class="bottom-line">InMemorySaver удобен для обучения, но теряет данные после перезапуска процесса</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/langgraph/persistence">LangGraph: checkpointers</a><span class="page-num">14 / 18</span></footer>
+    </section>
+
+    <section id="slide-15" class="slide" data-title="Long-term memory живёт между threads" aria-label="Слайд 15: Long-term memory живёт между threads">
+      <p class="eyebrow">LONG-TERM MEMORY</p><h2>Store хранит данные приложения между threads</h2>
+      <div class="store-grid">
+        <article class="store-card glass"><h3>Checkpointer</h3><span class="scope-badge">один thread</span><p>Сохраняет snapshots графа.</p><div class="kv">messages<br>current_step<br>tool_results</div></article>
+        <article class="store-card glass"><h3>Store</h3><span class="scope-badge">несколько threads</span><p>Хранит выбранные приложением записи.</p><div class="kv">namespace: ("users", user_id)<br>key: "profile"<br>value: {"language": "ru"}</div></article>
+      </div>
+      <p class="bottom-line">История диалога и долговременный профиль решают разные задачи</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/langgraph/persistence#checkpointer-vs-store">LangGraph: checkpointer vs store</a><span class="page-num">15 / 18</span></footer>
+    </section>
+
+    <section id="slide-16" class="slide" data-title="Память по красоте" aria-label="Слайд 16: Память по красоте">
+      <p class="eyebrow">MEMORY DESIGN</p><h2>Хорошая память начинается с правил данных</h2>
+      <div class="memory-rules">
+        <article class="memory-rule"><span class="number">01</span><h3>Сохранять выборочно</h3><p>Не весь разговор, а полезные факты с понятной схемой.</p></article>
+        <article class="memory-rule"><span class="number">02</span><h3>Разделять scope</h3><p>Диалог в thread, устойчивые предпочтения в Store.</p></article>
+        <article class="memory-rule"><span class="number">03</span><h3>Возвращать по необходимости</h3><p>Подмешивать только релевантные записи, а не весь архив.</p></article>
+        <article class="memory-rule"><span class="number">04</span><h3>Уметь исправлять и удалять</h3><p>Источник, дата, версия, TTL и явная команда забыть.</p></article>
+      </div>
+      <p class="bottom-line">Память является продуктовой политикой, а не побочным эффектом чата</p>
+      <footer class="slide-footer"><a class="source-link" href="https://docs.langchain.com/oss/python/concepts/memory">LangChain: memory overview</a><span class="page-num">16 / 18</span></footer>
+    </section>
+
+    <section id="slide-17" class="slide dark" data-title="Читаем сценарий как граф" aria-label="Слайд 17: Читаем сценарий как граф">
+      <p class="eyebrow">ПРОВЕРКА ПОНИМАНИЯ</p><h2>«Найди свежие новости о LangGraph»</h2>
+      <p class="lead">Что должно произойти в <code>web_search_agent</code>?</p>
+      <div class="quiz" role="group" aria-label="Варианты ответа">
+        <button type="button" data-select="single"><b>А</b><p><code>llm → END</code>, модель отвечает из своих знаний</p></button>
+        <button type="button" data-select="single" data-correct><b>Б</b><p><code>llm → tools → llm → END</code></p></button>
+        <button type="button" data-select="single"><b>В</b><p><code>tools → llm → START</code></p></button>
+        <button type="button" data-select="single"><b>Г</b><p>Новый thread автоматически создаёт web search</p></button>
+      </div>
+      <p class="quiz-answer" data-reveal><strong>Б.</strong> Свежие сведения требуют <code>web_search</code>, его результат возвращается модели как ToolMessage.</p>
+      <footer class="slide-footer"><span></span><span class="page-num">17 / 18</span></footer>
+    </section>
+
+    <section id="slide-18" class="slide" data-title="Граф стал читаемым" aria-label="Слайд 18: Граф стал читаемым">
+      <p class="eyebrow">ИТОГ</p><h2>Граф стал читаемым</h2>
+      <div class="final-grid">
+        <article class="final-card glass"><b>R</b><h3>Run</h3><p>Один запуск</p></article>
+        <article class="final-card glass"><b>S</b><h3>State</h3><p>Общий снимок</p></article>
+        <article class="final-card glass"><b>N</b><h3>Nodes</h3><p>Рабочие функции</p></article>
+        <article class="final-card glass"><b>T</b><h3>Tools</h3><p>Внешние действия</p></article>
+        <article class="final-card glass"><b>M</b><h3>Memory</h3><p>Сохранённое состояние</p></article>
+      </div>
+      <p class="final-line">Следующий шаг: добавить память осознанно и проверить её в двух threads</p>
+      <footer class="slide-footer"><span></span><span class="page-num">18 / 18</span></footer>
+    </section>
+  </div>
+  <div id="announcer" aria-live="polite"></div>
+</main>
+
+<dialog id="notes">
+  <button id="close-notes" aria-label="Закрыть заметки">×</button>
+  <h3 id="notes-title"></h3>
+  <p id="notes-time" class="muted"></p>
+  <div id="notes-body"></div>
+</dialog>
+
+<script type="application/json" id="speaker-data">[
+  {"title":"LangGraph: как устроен агент","minutes":2,"notes":"Свяжите занятие с уже работающим проектом. Сегодня не пишем новый tool. Учимся читать исполнение графа и проектировать память. Клавиша N открывает заметки преподавателя.","sources":[]},
+  {"title":"Два агента, один каркас","minutes":4,"notes":"Откройте langgraph.json и назовите два graph id. Затем покажите, что оба Python-файла строят одинаковую топологию. Разница в system prompt и списке tools. Не объединяйте их мысленно в одного агента с двумя инструментами.","sources":[]},
+  {"title":"Пять слов для чтения графа","minutes":3,"notes":"Дайте короткие рабочие определения. Edge будет рассмотрен вместе с nodes как часть управления потоком. Попросите студентов назвать, какое слово они уже видят в Studio.","sources":[["LangGraph Graph API","https://docs.langchain.com/oss/python/langgraph/graph-api"]]},
+  {"title":"Run: один проход по графу","minutes":5,"notes":"Run не обязан пройти все показанные этапы. Обычный вопрос может завершиться после llm. Tool path может повторяться. В Studio один пользовательский ввод создаёт отдельный run внутри текущего thread.","sources":[]},
+  {"title":"Run, thread и assistant","minutes":5,"notes":"Assistant здесь означает исполняемый граф с конфигурацией. Thread связывает историю и checkpoints. Run является одной попыткой выполнения. Используйте аналогию: рецепт, блокнот одного разговора, одно приготовление. Сразу вернитесь к точным терминам.","sources":[["Manage assistants","https://docs.langchain.com/langsmith/configuration-cloud"]]},
+  {"title":"State: общий снимок данных","minutes":5,"notes":"MessagesState уже содержит канал messages и reducer add_messages. Это не обязательно только чат. Схему можно расширить, например documents, user_id или attempts. Напомните, что system prompt в текущем коде добавляется перед invoke модели и не лежит в state.","sources":[["MessagesState","https://docs.langchain.com/oss/python/langgraph/graph-api#messagesstate"]]},
+  {"title":"Reducer собирает обновления","minutes":5,"notes":"Сначала спросите, исчезнет ли история, если tools вернёт только новый ToolMessage. Раскройте ответ. add_messages добавляет новые сообщения и умеет обновлять существующие по id. Для обычных полей без reducer новое значение заменяет старое.","sources":[["Reducers","https://docs.langchain.com/oss/python/langgraph/graph-api#reducers"]]},
+  {"title":"Node: функция над состоянием","minutes":5,"notes":"Покажите функцию llm_node в проекте. Она читает state messages, вызывает модель и возвращает словарь только с новым сообщением. Node может быть синхронной или асинхронной Python-функцией. Слово node описывает роль функции в графе, а не отдельный процесс.","sources":[["Nodes","https://docs.langchain.com/oss/python/langgraph/graph-api#nodes"]]},
+  {"title":"Edges задают следующий шаг","minutes":5,"notes":"Фиксированный edge всегда ведёт в указанную node. Conditional edge вызывает routing function. В проекте tools_condition смотрит на последнее AIMessage. Если есть tool_calls, следующий шаг tools, иначе END.","sources":[["Conditional edges","https://docs.langchain.com/oss/python/langgraph/graph-api#conditional-edges"]]},
+  {"title":"Полный цикл агента","minutes":6,"notes":"Раскрывайте номера по одному. 1 вход попадает в llm. 2 без tool call идём к END. 3 с tool call идём в ToolNode. 4 ToolMessage пополняет state и снова отправляет граф в llm. Обсудите, почему после tool нужен второй вызов модели.","sources":[]},
+  {"title":"Почему workflows разделены","minutes":4,"notes":"Сравните два файла построчно на уровне архитектуры. Разделение уменьшает набор доступных действий в каждом workflow и делает тесты проще. Это не единственно возможная архитектура, но она ясна для учебного проекта.","sources":[]},
+  {"title":"Память без магии","minutes":4,"notes":"Главная мысль: веса модели не меняются после разговора. Приложение сохраняет данные, потом снова помещает их в доступный контекст. Если данные не загружены, модель их не видит.","sources":[["Persistence","https://docs.langchain.com/oss/python/langgraph/persistence"]]},
+  {"title":"Short-term memory живёт в thread","minutes":6,"notes":"Раскройте ответы после прогноза аудитории. В Thread A checkpoint содержит прошлые сообщения, поэтому модель получает имя. Thread B имеет отдельное состояние. Одинаковый текст запроса не означает одинаковый контекст.","sources":[["Add memory","https://docs.langchain.com/oss/python/langgraph/add-memory"]]},
+  {"title":"Checkpointer сохраняет checkpoints","minutes":6,"notes":"Для ручного локального запуска checkpointer передаётся при compile, а thread_id при invoke. InMemorySaver подходит для демонстрации и тестов, но не переживает перезапуск. В Agent Server persistence создаётся инфраструктурой автоматически. Не добавляйте второй checkpointer в граф только ради Studio.","sources":[["Persistence","https://docs.langchain.com/oss/python/langgraph/persistence"]]},
+  {"title":"Long-term memory живёт между threads","minutes":5,"notes":"Сравните scopes. Checkpointer воспроизводит состояние одного thread. Store предназначен для данных приложения между threads, например профиль пользователя. Не переносите туда сырую историю автоматически. Определите namespace и schema.","sources":[["Checkpointer vs store","https://docs.langchain.com/oss/python/langgraph/persistence#checkpointer-vs-store"]]},
+  {"title":"Память по красоте","minutes":6,"notes":"Попросите по одному примеру для каждого правила. Хорошая память минимальна, адресна и исправима. Обсудите персональные данные, срок хранения и право забыть. Для длинных разговоров нужны trimming или summarization, иначе контекст и checkpoints растут без границ.","sources":[["Memory overview","https://docs.langchain.com/oss/python/concepts/memory"]]},
+  {"title":"Читаем сценарий как граф","minutes":5,"notes":"Дайте минуту на индивидуальный выбор. Затем попросите объяснить не только маршрут, но и изменения state после каждого шага. Верный вариант Б следует из system prompt web_search_agent и условного edge.","sources":[]},
+  {"title":"Граф стал читаемым","minutes":3,"notes":"Закройте занятие пятью определениями. Попросите каждого сформулировать одно предложение: какая память нужна погодному агенту и какая веб-поисковому. Следующая практика может добавить short-term memory и проверить изоляцию двух threads.","sources":[]}
+]</script>
+
+<script>
+(()=>{
+  const stage=document.getElementById('stage'),deck=document.getElementById('deck'),slides=[...document.querySelectorAll('.slide')],announcer=document.getElementById('announcer'),notes=document.getElementById('notes'),data=JSON.parse(document.getElementById('speaker-data').textContent);
+  let index=0,start=null,lastSwipe=0;
+  function fit(){deck.style.setProperty('--scale',Math.min(stage.clientWidth/1600,stage.clientHeight/900))}
+  function announce(text){announcer.textContent='';requestAnimationFrame(()=>announcer.textContent=text)}
+  function show(n){index=Math.max(0,Math.min(slides.length-1,n));slides.forEach((s,i)=>{s.classList.toggle('active',i===index);s.setAttribute('aria-hidden',String(i!==index));s.inert=i!==index});document.title=`${index+1}. ${slides[index].dataset.title} · LangGraph`;announce(`Слайд ${index+1} из ${slides.length}: ${slides[index].dataset.title}`);try{history.replaceState(null,'',`${location.pathname}#slide-${index+1}`)}catch{}}
+  function revealNext(){const next=slides[index].querySelector('[data-reveal]:not(.shown)');if(!next)return false;next.classList.add('shown');announce(next.textContent.trim());return true}
+  function next(){if(!revealNext())show(index+1)}
+  function back(){show(index-1)}
+  function toggleReveals(){const all=[...slides[index].querySelectorAll('[data-reveal]')];if(!all.length)return;const shown=all.every(e=>e.classList.contains('shown'));all.forEach(e=>e.classList.toggle('shown',!shown))}
+  function openNotes(){const s=data[index],from=data.slice(0,index).reduce((sum,item)=>sum+item.minutes,0);document.getElementById('notes-title').textContent=`${index+1}. ${s.title}`;document.getElementById('notes-time').textContent=`${from}–${from+s.minutes} мин`;const body=document.getElementById('notes-body');body.replaceChildren();const p=document.createElement('p');p.textContent=s.notes;body.append(p);s.sources.forEach(([label,url])=>{const a=document.createElement('a');a.textContent=label;a.href=url;a.target='_blank';a.rel='noopener noreferrer';body.append(a)});notes.showModal()}
+  document.getElementById('close-notes').onclick=()=>notes.close();
+  document.addEventListener('keydown',e=>{if(notes.open||e.altKey||e.ctrlKey||e.metaKey)return;if(e.target.closest('button,a')&&['Enter','Space'].includes(e.code))return;if(['Space','Enter'].includes(e.code)){e.preventDefault();e.shiftKey?back():next()}else if(['ArrowRight','ArrowDown','PageDown'].includes(e.code)){e.preventDefault();show(index+1)}else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.code)){e.preventDefault();show(index-1)}else if(e.code==='Home'){e.preventDefault();show(0)}else if(e.code==='End'){e.preventDefault();show(slides.length-1)}else if(e.code==='KeyR')toggleReveals();else if(e.code==='KeyN')openNotes();else if(e.code==='KeyF'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen?.()}});
+  stage.addEventListener('click',e=>{if(e.target.closest('a')||Date.now()-lastSwipe<500)return;const b=e.target.closest('[data-select]');if(b){const value=b.getAttribute('aria-pressed')!=='true';if(b.dataset.select==='single')b.parentElement.querySelectorAll('[data-select]').forEach(x=>x.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed',String(value));b.blur();announce(`Выбор: ${b.textContent.trim()}`);return}if(window.getSelection()?.toString())return;e.shiftKey?back():next()});
+  stage.addEventListener('touchstart',e=>{start=e.touches.length===1?{x:e.touches[0].clientX,y:e.touches[0].clientY}:null},{passive:true});
+  stage.addEventListener('touchend',e=>{if(!start||!e.changedTouches.length)return;const dx=e.changedTouches[0].clientX-start.x,dy=e.changedTouches[0].clientY-start.y;start=null;if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.5){lastSwipe=Date.now();show(index+(dx<0?1:-1))}},{passive:true});
+  function fromHash(){const match=location.hash.match(/^#slide-(\d+)$/);show(match?Number(match[1])-1:0)}
+  window.addEventListener('hashchange',fromHash);window.addEventListener('resize',fit);fromHash();fit();
+})();
+</script>
+</body>
+</html>

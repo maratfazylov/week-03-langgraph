@@ -1,0 +1,15 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "weather_agent": {
+      "path": "./src/02_weather_graph.py:graph",
+      "description": "Учебный русскоязычный агент: обычные ответы и погода Open-Meteo"
+    },
+    "web_search_agent": {
+      "path": "./src/03_web_search_graph.py:graph",
+      "description": "Учебный русскоязычный агент: обычные ответы и бесключевой веб-поиск"
+    }
+  },
+  "env": ".env",
+  "python_version": "3.11"
+}
